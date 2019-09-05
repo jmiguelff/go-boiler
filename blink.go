@@ -28,3 +28,5 @@ func main() {
 		time.Sleep(time.Second / 5)
 	}
 }
+
+// env GOOS=linux GOARCH=arm GOARM=5 go build
