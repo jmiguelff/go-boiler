@@ -1,0 +1,6 @@
+serialConf:
+  name: Port1
+  device: /dev/cu.usbmodem1423401
+  baud: 38400
+  stopbits: 2
+  parity: N
