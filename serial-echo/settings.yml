@@ -1,6 +1,6 @@
 serial:
   name: port1
-  device: /dev/tty.usbserial-FTZ16IYH
+  device: /dev/tty.usbserial-FT1RM3C2
   dataSize: 8
   baud: 9600
   stopbits: 1

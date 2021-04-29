@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"io/ioutil"
 	"log"
+	"os"
 	"time"
 
 	"github.com/tarm/serial"
@@ -52,7 +53,10 @@ func main() {
 	log.Println("Test serial port app")
 	log.Println("Serial port configurations")
 	log.Println(*opts)
-	log.Println("Press enter to start")
+
+	scanner := bufio.NewScanner(os.Stdin)
+	log.Println("Press any key to start")
+	scanner.Scan()
 
 	// Serial port configuration
 	mode := setSerialMode(opts)
@@ -77,21 +81,21 @@ func main() {
 }
 
 func sendByteWithEcho(sfd *serial.Port, b byte) int {
+	log.Printf("TX -> [%c]\n", b)
 	_, err := sfd.Write([]byte{b})
 	if err != nil {
-		log.Fatalln(err)
 		return -1
 	}
 
 	r := bufio.NewReader(sfd)
 	ret, err := r.ReadByte()
 	if err != nil {
-		log.Fatalln(err)
 		return -1
 	}
+	log.Printf("RX -> [%c]\n", ret)
 
 	if ret != b {
-		log.Fatalln("Echo to byte", b, "does not match: ", ret)
+		log.Fatalf("Echo to byte [%c] does not match [%c]\n", b, ret)
 		return -1
 	}
 
