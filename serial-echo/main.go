@@ -55,7 +55,7 @@ func main() {
 	log.Println(*opts)
 
 	scanner := bufio.NewScanner(os.Stdin)
-	log.Println("Press any key to start")
+	log.Println("Press enter to start")
 	scanner.Scan()
 
 	// Serial port configuration
