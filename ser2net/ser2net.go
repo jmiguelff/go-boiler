@@ -10,9 +10,10 @@ import (
 
 func main() {
 	dstPtr := flag.String("dst", "localhost:8000", "data destinantion")
+	baudPtr := flag.Int("baud", 9600, "serial baud")
 	flag.Parse()
 
-	c := &serial.Config{Name: "/dev/ttymxc4", Baud: 9600}
+	c := &serial.Config{Name: "/dev/ttymxc4", Baud: *baudPtr}
 	s, err := serial.OpenPort(c)
 	if err != nil {
 		log.Fatal(err)
@@ -39,7 +40,7 @@ func main() {
 }
 
 func serialToTcp(c net.Conn, s *serial.Port) {
-	buf := make([]byte, 64)
+	buf := make([]byte, 512)
 	for {
 		n, err := s.Read(buf)
 		if err != nil {
@@ -50,7 +51,7 @@ func serialToTcp(c net.Conn, s *serial.Port) {
 }
 
 func tcpToSerial(c net.Conn, s *serial.Port) {
-	buf := make([]byte, 64)
+	buf := make([]byte, 512)
 	for {
 		n, err := c.Read(buf)
 		if err != nil {
