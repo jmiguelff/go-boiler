@@ -10,10 +10,11 @@ import (
 
 func main() {
 	dstPtr := flag.String("dst", "localhost:8000", "data destinantion")
+	devPtr := flag.String("dev", "/dev/ttymxc4", "serial device")
 	baudPtr := flag.Int("baud", 9600, "serial baud")
 	flag.Parse()
 
-	c := &serial.Config{Name: "/dev/ttymxc4", Baud: *baudPtr}
+	c := &serial.Config{Name: *devPtr, Baud: *baudPtr}
 	s, err := serial.OpenPort(c)
 	if err != nil {
 		log.Fatal(err)
