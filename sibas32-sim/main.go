@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 
 	"github.com/tarm/serial"
@@ -44,6 +46,7 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
+	r := bufio.NewReader(sfd)
 
 	var headerOk int = 0
 	var selCmd cmd = NA
@@ -105,7 +108,7 @@ func main() {
 		case WAITFORHEADER:
 			cmdOk = 0
 			selCmd = NA
-			err = sbs32WaitForHeader(sfd)
+			err = sbs32WaitForHeader(sfd, r)
 			if err != nil {
 				headerOk = 0
 				log.Println(err)
@@ -191,33 +194,24 @@ func main() {
 	}
 }
 
-func sbs32WaitForHeader(s *serial.Port) error {
+func sbs32WaitForHeader(s *serial.Port, r *bufio.Reader) error {
 	// header we are expecting
 	h := []byte{'\x00', '\xF1'}
-	buf := make([]byte, 1)
-	cmd := make([]byte, 2)
+	buf := make([]byte, 2)
 
-	i := 0
-	for i < 2 {
-		log.Println(i)
-		n, err := s.Read(buf)
-		if err != nil {
-			return err
-		}
-		cmd[i] = buf[0]
-		log.Println(cmd)
-		log.Printf("nb bytes received %d\n", n)
-		i = i + n
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return err
 	}
 
-	log.Println(cmd)
+	log.Println(buf)
 
-	if bytes.Equal(cmd, h) {
+	if bytes.Equal(buf, h) {
 		s.Write([]byte{'\xF2'})
 	} else {
 		return errors.New("incorrect header received")
 	}
 
+	// Get last 0xF2 before command type
 	_, err := s.Read(buf)
 	if err != nil {
 		return err
