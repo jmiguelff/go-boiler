@@ -39,7 +39,7 @@ const (
 func main() {
 	fmt.Println("Starting simulator - open serial port")
 
-	c := &serial.Config{Name: "/dev/ttymxc0", Baud: 38400}
+	c := &serial.Config{Name: "/dev/ttymxc1", Baud: 38400}
 	sfd, err := serial.OpenPort(c)
 	if err != nil {
 		log.Fatalln(err)
@@ -194,18 +194,39 @@ func main() {
 func sbs32WaitForHeader(s *serial.Port) error {
 	// header we are expecting
 	h := []byte{'\x00', '\xF1'}
+	buf := make([]byte, 1)
+	cmd := make([]byte, 2)
 
-	buf := make([]byte, 2)
+	i := 0
+	for i < 2 {
+		log.Println(i)
+		n, err := s.Read(buf)
+		if err != nil {
+			return err
+		}
+		cmd[i] = buf[0]
+		log.Println(cmd)
+		log.Printf("nb bytes received %d\n", n)
+		i = i + n
+	}
+
+	log.Println(cmd)
+
+	if bytes.Equal(cmd, h) {
+		s.Write([]byte{'\xF2'})
+	} else {
+		return errors.New("incorrect header received")
+	}
+
 	_, err := s.Read(buf)
 	if err != nil {
 		return err
-	}
-
-	if bytes.Equal(buf, h) {
-		s.Write([]byte("\xF2"))
-		return nil
 	} else {
-		return errors.New("incorrect header received")
+		if buf[0] == '\xF2' {
+			return nil
+		} else {
+			return errors.New("last 0xF2 byte was not received")
+		}
 	}
 }
 
@@ -221,7 +242,7 @@ func sbs32WaitForHeader(s *serial.Port) error {
 // 8: Get connector address
 func sbs32WaitForCmd(s *serial.Port) (cmd, error) {
 	// Get first byte
-	buf := make([]byte, 2)
+	buf := make([]byte, 1)
 	_, err := s.Read(buf)
 	if err != nil {
 		return NA, err
@@ -231,25 +252,25 @@ func sbs32WaitForCmd(s *serial.Port) (cmd, error) {
 
 	switch buf[0] {
 	case '\x48':
-		s.Write(buf[:1])
+		s.Write(buf)
 		return SETBAUDRATE, nil // Set baudrate
 	case '\x49':
-		s.Write(buf[:1])
+		s.Write(buf)
 		aux = 1 // Read connector value by FP id or get FP name (req next byte)
 	case '\x4a':
-		s.Write(buf[:1])
+		s.Write(buf)
 		aux = 2 // Get connector value by FP name or Get connector address (req next byte)
 	case '\x4b':
-		s.Write(buf[:1])
+		s.Write(buf)
 		aux = 3 // Get connector id (req next byte)
 	case '\x6a':
-		s.Write(buf[:1])
+		s.Write(buf)
 		return GETNBROFP, nil // Get number FP
 	case '\x72':
-		s.Write(buf[:1])
+		s.Write(buf)
 		return GETFPACCESSRIGHTS, nil // Get FP access rights
 	case '\x73':
-		s.Write(buf[:1])
+		s.Write(buf)
 		return GETSWVERSION, nil // Get version
 	default:
 		return NA, errors.New("invalid command")
@@ -268,27 +289,27 @@ func sbs32WaitForCmd(s *serial.Port) (cmd, error) {
 	switch buf[0] {
 	case '\x41':
 		if aux == 1 {
-			s.Write(buf[:1])
+			s.Write(buf)
 			return GETFPNAME, nil // Get FP name
 		} else {
 			return NA, errors.New("invalid command (2nd byte)")
 		}
 	case '\x42':
 		if aux == 1 {
-			s.Write(buf[:1])
+			s.Write(buf)
 			return GETCONNECTORBYID, nil // Read connector value by id
 		} else if aux == 2 {
-			s.Write(buf[:1])
+			s.Write(buf)
 			return GETCONNECTORBYNAME, nil // Get connector value by FP name
 		} else if aux == 3 {
-			s.Write(buf[:1])
+			s.Write(buf)
 			return GETCONNECTORID, nil // Get connector id
 		} else {
 			return NA, errors.New("invalid command (2nd byte)")
 		}
 	case '\x44':
 		if aux == 2 {
-			s.Write(buf[:1])
+			s.Write(buf)
 			return GETCONNECTORADDRESS, nil // Get connector address
 		} else {
 			return NA, errors.New("invalid command (2nd byte)")
@@ -308,7 +329,7 @@ func sbs32WaitForFPId(s *serial.Port) ([]byte, error) {
 			return id, err
 		} else {
 			s.Write(buf)
-			id = append(id, buf[0])
+			id[i] = buf[0]
 		}
 	}
 	return id, nil
@@ -371,10 +392,16 @@ func sbs32EchoPayloadBaud(s *serial.Port) error {
 
 func sbs32WaitForFooterBaud(s *serial.Port) error {
 	footer := []byte{'\x4F', '\xFC', '\xFC', '\xFC', '\xFC', '\xFC'}
-	buf := make([]byte, 6)
-	_, err := s.Read(buf)
-	if err != nil {
-		return err
+	buf := make([]byte, 1)
+	rcv := make([]byte, 6)
+	i := 0
+	for i < 6 {
+		n, err := s.Read(buf)
+		if err != nil {
+			return err
+		}
+		rcv[i] = buf[0]
+		i = i + n
 	}
 
 	if bytes.Equal(buf, footer) {
