@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -44,7 +45,7 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
-	// r := bufio.NewReader(sfd)
+	r := bufio.NewReader(sfd)
 
 	var headerOk int = 0
 	var selCmd cmd = NA
@@ -106,7 +107,7 @@ func main() {
 		case WAITFORHEADER:
 			cmdOk = 0
 			selCmd = NA
-			err = sbs32WaitForHeader(sfd)
+			err = sbs32WaitForHeader(sfd, r)
 			if err != nil {
 				headerOk = 0
 				log.Println(err)
@@ -114,7 +115,7 @@ func main() {
 				headerOk = 1
 			}
 		case WAITFORCMD:
-			selCmd, err = sbs32WaitForCmd(sfd)
+			selCmd, err = sbs32WaitForCmd(sfd, r)
 			if err != nil {
 				headerOk = 0
 				selCmd = NA
@@ -201,52 +202,53 @@ func main() {
 	}
 }
 
-func sbs32WaitForHeader(s *serial.Port) error {
+func sbs32WaitForHeader(s *serial.Port, r *bufio.Reader) error {
 	// header we are expecting
 	h := []byte{'\x00', '\xF1'}
-	buf := make([]byte, 2)
-	var res = []byte{}
 
-	for i := 0; i < len(h); {
-		n, err := s.Read(buf)
+	// wait for first header byte
+	for {
+		buf, err := r.ReadByte()
 		if err != nil {
-			s.Flush()
 			return err
 		}
-		if n > 0 {
-			i = i + n
-			for index := range buf[:n] {
-				res = append(res, buf[index])
-			}
-		}
-	}
-
-	// Debug
-	log.Println(res)
-
-	if bytes.Equal(res, h) {
-		s.Write([]byte{'\xF2'})
-	} else {
-		s.Flush()
-		return errors.New("incorrect header received")
-	}
-
-	// Get last 0xF2 before command type
-	_, err := s.Read(buf)
-	if err != nil {
-		s.Flush()
-		return err
-	} else {
-		// Debug
-		log.Println(buf[0])
-
-		if buf[0] == '\xF2' {
-			return nil
+		if buf == h[0] {
+			log.Printf("Received first header byte [%x]\n", buf)
+			break
 		} else {
-			s.Flush()
-			return errors.New("last 0xF2 byte was not received")
+			continue
 		}
 	}
+
+	// get second header byte
+	buf, err := r.ReadByte()
+	if err != nil {
+		return err
+	}
+
+	if buf == h[1] {
+		log.Printf("Received second header byte [%x]\n", buf)
+	} else {
+		return errors.New("second header byte does not match prrotocol")
+	}
+
+	// send ack byte
+	_, err = s.Write([]byte{'\xF2'})
+	if err != nil {
+		return err
+	}
+
+	// get ack echo byte
+	buf, err = r.ReadByte()
+	if err != nil {
+		return err
+	}
+
+	if buf != '\xF2' {
+		return errors.New("ack echo byte does not match")
+	}
+
+	return nil
 }
 
 // cmd list
@@ -259,81 +261,76 @@ func sbs32WaitForHeader(s *serial.Port) error {
 // 6: Read connector value by FP name
 // 7: Get connector id
 // 8: Get connector address
-func sbs32WaitForCmd(s *serial.Port) (cmd, error) {
+func sbs32WaitForCmd(s *serial.Port, r *bufio.Reader) (cmd, error) {
 	// Get first byte
-	buf := make([]byte, 1)
-	_, err := s.Read(buf)
+	buf, err := r.ReadByte()
 	if err != nil {
 		return NA, err
 	}
 
-	// Debug
-	log.Println(buf)
+	// debug print
+	log.Printf("Received first byte command [%x]\n", buf)
 
 	var aux int
-	switch buf[0] {
+	switch buf {
 	case '\x48':
-		s.Write(buf)
+		s.Write([]byte{buf})
 		return SETBAUDRATE, nil // Set baudrate
 	case '\x49':
-		s.Write(buf)
+		s.Write([]byte{buf})
 		aux = 1 // Read connector value by FP id or get FP name (req next byte)
 	case '\x4a':
-		s.Write(buf)
+		s.Write([]byte{buf})
 		aux = 2 // Get connector value by FP name or Get connector address (req next byte)
 	case '\x4b':
-		s.Write(buf)
+		s.Write([]byte{buf})
 		aux = 3 // Get connector id (req next byte)
 	case '\x6a':
-		s.Write(buf)
+		s.Write([]byte{buf})
 		return GETNBROFP, nil // Get number FP
 	case '\x72':
-		s.Write(buf)
+		s.Write([]byte{buf})
 		return GETFPACCESSRIGHTS, nil // Get FP access rights
 	case '\x73':
-		s.Write(buf)
+		s.Write([]byte{buf})
 		return GETSWVERSION, nil // Get version
 	default:
 		return NA, errors.New("invalid command")
 	}
 
-	// Get second byte
-	n, err := s.Read(buf)
+	// get second byte
+	buf, err = r.ReadByte()
 	if err != nil {
-		log.Fatalln(err)
+		return NA, err
 	}
 
-	// Debug
-	log.Println(buf)
+	// debug
+	log.Printf("Received second byte command [%x]\n", buf)
 
-	if n > 1 {
-		return NA, errors.New("received more data than expected")
-	}
-
-	switch buf[0] {
+	switch buf {
 	case '\x41':
 		if aux == 1 {
-			s.Write(buf)
+			s.Write([]byte{buf})
 			return GETFPNAME, nil // Get FP name
 		} else {
 			return NA, errors.New("invalid command (2nd byte)")
 		}
 	case '\x42':
 		if aux == 1 {
-			s.Write(buf)
+			s.Write([]byte{buf})
 			return GETCONNECTORBYID, nil // Read connector value by id
 		} else if aux == 2 {
-			s.Write(buf)
+			s.Write([]byte{buf})
 			return GETCONNECTORBYNAME, nil // Get connector value by FP name
 		} else if aux == 3 {
-			s.Write(buf)
+			s.Write([]byte{buf})
 			return GETCONNECTORID, nil // Get connector id
 		} else {
 			return NA, errors.New("invalid command (2nd byte)")
 		}
 	case '\x44':
 		if aux == 2 {
-			s.Write(buf)
+			s.Write([]byte{buf})
 			return GETCONNECTORADDRESS, nil // Get connector address
 		} else {
 			return NA, errors.New("invalid command (2nd byte)")
