@@ -1,11 +1,9 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 
 	"github.com/tarm/serial"
@@ -41,12 +39,12 @@ const (
 func main() {
 	fmt.Println("Starting simulator - open serial port")
 
-	c := &serial.Config{Name: "/dev/ttymxc1", Baud: 38400}
+	c := &serial.Config{Name: "/dev/ttymxc2", Baud: 38400}
 	sfd, err := serial.OpenPort(c)
 	if err != nil {
 		log.Fatalln(err)
 	}
-	r := bufio.NewReader(sfd)
+	// r := bufio.NewReader(sfd)
 
 	var headerOk int = 0
 	var selCmd cmd = NA
@@ -108,7 +106,7 @@ func main() {
 		case WAITFORHEADER:
 			cmdOk = 0
 			selCmd = NA
-			err = sbs32WaitForHeader(sfd, r)
+			err = sbs32WaitForHeader(sfd)
 			if err != nil {
 				headerOk = 0
 				log.Println(err)
@@ -165,8 +163,17 @@ func main() {
 				}
 			}
 		case REQSWVERSION:
+			err = sbs32WaitForFooter(sfd)
+			if err != nil {
+				cmdOk = -1
+				headerOk = 0
+				selCmd = NA
+				log.Println(err)
+				break
+			}
 			err = sbs32SendVersion(sfd)
 			if err != nil {
+				cmdOk = -1
 				headerOk = 0
 				selCmd = NA
 				log.Println(err)
@@ -194,31 +201,49 @@ func main() {
 	}
 }
 
-func sbs32WaitForHeader(s *serial.Port, r *bufio.Reader) error {
+func sbs32WaitForHeader(s *serial.Port) error {
 	// header we are expecting
 	h := []byte{'\x00', '\xF1'}
 	buf := make([]byte, 2)
+	var res = []byte{}
 
-	if _, err := io.ReadFull(r, buf); err != nil {
-		return err
+	for i := 0; i < len(h); {
+		n, err := s.Read(buf)
+		if err != nil {
+			s.Flush()
+			return err
+		}
+		if n > 0 {
+			i = i + n
+			for index := range buf[:n] {
+				res = append(res, buf[index])
+			}
+		}
 	}
 
-	log.Println(buf)
+	// Debug
+	log.Println(res)
 
-	if bytes.Equal(buf, h) {
+	if bytes.Equal(res, h) {
 		s.Write([]byte{'\xF2'})
 	} else {
+		s.Flush()
 		return errors.New("incorrect header received")
 	}
 
 	// Get last 0xF2 before command type
 	_, err := s.Read(buf)
 	if err != nil {
+		s.Flush()
 		return err
 	} else {
+		// Debug
+		log.Println(buf[0])
+
 		if buf[0] == '\xF2' {
 			return nil
 		} else {
+			s.Flush()
 			return errors.New("last 0xF2 byte was not received")
 		}
 	}
@@ -242,8 +267,10 @@ func sbs32WaitForCmd(s *serial.Port) (cmd, error) {
 		return NA, err
 	}
 
-	var aux int
+	// Debug
+	log.Println(buf)
 
+	var aux int
 	switch buf[0] {
 	case '\x48':
 		s.Write(buf)
@@ -275,6 +302,9 @@ func sbs32WaitForCmd(s *serial.Port) (cmd, error) {
 	if err != nil {
 		log.Fatalln(err)
 	}
+
+	// Debug
+	log.Println(buf)
 
 	if n > 1 {
 		return NA, errors.New("received more data than expected")
@@ -336,9 +366,13 @@ func sbs32WaitForFooter(s *serial.Port) error {
 		return err
 	}
 
+	// Debug
+	log.Println(buf)
+
 	if buf[0] == '\x4f' {
 		return nil
 	} else {
+		s.Flush()
 		return errors.New("invalid footer received")
 	}
 }
@@ -388,8 +422,8 @@ func sbs32WaitForFooterBaud(s *serial.Port) error {
 	footer := []byte{'\x4F', '\xFC', '\xFC', '\xFC', '\xFC', '\xFC'}
 	buf := make([]byte, 1)
 	rcv := make([]byte, 6)
-	i := 0
-	for i < 6 {
+
+	for i := 0; i < 6; {
 		n, err := s.Read(buf)
 		if err != nil {
 			return err
@@ -401,6 +435,7 @@ func sbs32WaitForFooterBaud(s *serial.Port) error {
 	if bytes.Equal(buf, footer) {
 		return nil
 	} else {
+		s.Flush()
 		return errors.New("footer does not match")
 	}
 }
