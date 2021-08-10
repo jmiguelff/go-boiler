@@ -164,20 +164,12 @@ func main() {
 				}
 			}
 		case REQSWVERSION:
-			err = sbs32WaitForFooter(sfd)
+			err = sbs32VersionQuery(sfd, r)
 			if err != nil {
+				log.Println(err)
 				cmdOk = -1
 				headerOk = 0
 				selCmd = NA
-				log.Println(err)
-				break
-			}
-			err = sbs32SendVersion(sfd)
-			if err != nil {
-				cmdOk = -1
-				headerOk = 0
-				selCmd = NA
-				log.Println(err)
 			} else {
 				cmdOk = 1
 				headerOk = 0
@@ -389,20 +381,6 @@ func sbs32SendConnectorVal(s *serial.Port) error {
 	return nil
 }
 
-func sbs32SendVersion(s *serial.Port) error {
-	data := []byte{
-		'\x4F', '\x32', '\x30', '\x30', '\x30', '\x30', '\x30', '\x30', '\x30', '\x30', '\x30', '\x30', '\x30', '\x30', '\x30', '\x30',
-		'\x30', '\x43', '\x43', '\x55', '\x20', '\x66', '\x6F', '\x72', '\x20', '\x43', '\x50', '\x41', '\x20', '\x53', '\x82', '\x72',
-		'\x69', '\x65', '\x20', '\x34', '\x30', '\x30', '\x30', '\x0A', '\x50', '\x47', '\x4D', '\x20', '\x0A', '\x50', '\x47', '\x4D',
-		'\x20', '\x76', '\x65', '\x72', '\x73', '\x69', '\x6F', '\x6E', '\x3A', '\x20', '\x32', '\x2E', '\x30'}
-
-	_, err := s.Write(data)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 func sbs32EchoPayloadBaud(s *serial.Port) error {
 	buf := make([]byte, 1)
 	for i := 0; i < 4; i++ {
@@ -435,4 +413,29 @@ func sbs32WaitForFooterBaud(s *serial.Port) error {
 		s.Flush()
 		return errors.New("footer does not match")
 	}
+}
+
+func sbs32VersionQuery(s *serial.Port, r *bufio.Reader) error {
+	// Get footer byte
+	buf, err := r.ReadByte()
+	if err != nil {
+		return err
+	}
+
+	if buf != '\x4F' {
+		return errors.New("invalid footer received")
+	}
+
+	// Send version data
+	data := []byte{
+		'\x4F', '\x32', '\x30', '\x30', '\x30', '\x30', '\x30', '\x30', '\x30', '\x30', '\x30', '\x30', '\x30', '\x30', '\x30', '\x30',
+		'\x30', '\x43', '\x43', '\x55', '\x20', '\x66', '\x6F', '\x72', '\x20', '\x43', '\x50', '\x41', '\x20', '\x53', '\x82', '\x72',
+		'\x69', '\x65', '\x20', '\x34', '\x30', '\x30', '\x30', '\x0A', '\x50', '\x47', '\x4D', '\x20', '\x0A', '\x50', '\x47', '\x4D',
+		'\x20', '\x76', '\x65', '\x72', '\x73', '\x69', '\x6F', '\x6E', '\x3A', '\x20', '\x32', '\x2E', '\x30'}
+
+	_, err = s.Write(data)
+	if err != nil {
+		return err
+	}
+	return nil
 }
