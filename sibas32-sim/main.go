@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
 	"log"
@@ -17,7 +16,6 @@ const (
 	WAITFORCMD
 	REQCONNECTORBYID
 	REQBAUDRATECHANGE
-	CHANGEBAUD
 	REQSWVERSION
 	ERROR
 )
@@ -47,63 +45,58 @@ func main() {
 	}
 	r := bufio.NewReader(sfd)
 
-	var headerOk int = 0
-	var selCmd cmd = NA
-	var cmdOk int = 0
-	var serialOk int = 0
+	// initial conditions
+	headerOk := 0
+	cmdOk := 0
+	selCmd := NA
+	state := WAITFORHEADER
 
-	s := WAITFORHEADER
+	// infinite loop
 	for {
-		switch s {
+		switch state {
 		case WAITFORHEADER:
 			if headerOk == 1 {
-				s = WAITFORCMD
+				state = WAITFORCMD
 			} else {
-				s = WAITFORHEADER
+				state = WAITFORHEADER
 			}
 		case WAITFORCMD:
 			if selCmd == SETBAUDRATE {
-				s = REQBAUDRATECHANGE
+				state = REQBAUDRATECHANGE
 			} else if selCmd == GETCONNECTORBYID {
-				s = REQCONNECTORBYID
+				state = REQCONNECTORBYID
 			} else if selCmd == GETSWVERSION {
-				s = REQSWVERSION
+				state = REQSWVERSION
 			} else if selCmd == NA && headerOk == 1 {
-				s = WAITFORCMD
+				state = WAITFORCMD
 			} else if selCmd == NA && headerOk == 0 {
-				s = WAITFORHEADER
+				state = WAITFORHEADER
 			} else {
-				s = ERROR
+				state = ERROR
 			}
 		case REQCONNECTORBYID:
 			if cmdOk == 0 {
-				s = REQCONNECTORBYID
+				state = REQCONNECTORBYID
 			} else {
-				s = WAITFORHEADER
+				state = WAITFORHEADER
 			}
 		case REQBAUDRATECHANGE:
 			if cmdOk == 0 {
-				s = REQBAUDRATECHANGE
+				state = REQBAUDRATECHANGE
 			} else {
-				s = CHANGEBAUD
+				state = WAITFORHEADER
 			}
 		case REQSWVERSION:
 			if cmdOk == 0 {
-				s = REQSWVERSION
+				state = REQSWVERSION
 			} else {
-				s = WAITFORHEADER
-			}
-		case CHANGEBAUD:
-			if serialOk == 1 {
-				s = WAITFORHEADER
-			} else {
-				log.Fatalln("Fail to change baudrate")
+				state = WAITFORHEADER
 			}
 		default:
-			s = ERROR
+			state = ERROR
 		}
 
-		switch s {
+		switch state {
 		case WAITFORHEADER:
 			cmdOk = 0
 			selCmd = NA
@@ -115,76 +108,36 @@ func main() {
 				headerOk = 1
 			}
 		case WAITFORCMD:
+			headerOk = 0
 			selCmd, err = sbs32WaitForCmd(sfd, r)
 			if err != nil {
-				headerOk = 0
 				selCmd = NA
 				log.Println(err)
 			}
 		case REQCONNECTORBYID:
-			adr, err := sbs32WaitForFPId(sfd)
+			err = sbs32ReqConnByIdResp(sfd, r)
 			if err != nil {
-				headerOk = 0
-				selCmd = NA
-				log.Println(err)
-			} else {
-				log.Println(adr)
-				err = sbs32WaitForFooter(sfd)
-				if err != nil {
-					headerOk = 0
-					selCmd = NA
-					log.Println(err)
-				} else {
-					err = sbs32SendConnectorVal(sfd)
-					if err != nil {
-						headerOk = 0
-						selCmd = NA
-						log.Println(err)
-					} else {
-						cmdOk = 1
-						headerOk = 0
-					}
-				}
-			}
-		case REQBAUDRATECHANGE:
-			err = sbs32EchoPayloadBaud(sfd)
-			if err != nil {
-				headerOk = 0
-				selCmd = NA
-				log.Println(err)
-			} else {
-				err = sbs32WaitForFooterBaud(sfd)
-				if err != nil {
-					headerOk = 0
-					selCmd = NA
-					log.Println(err)
-				} else {
-					cmdOk = 1
-					headerOk = 0
-				}
-			}
-		case REQSWVERSION:
-			err = sbs32VersionQuery(sfd, r)
-			if err != nil {
-				log.Println(err)
 				cmdOk = -1
-				headerOk = 0
-				selCmd = NA
-			} else {
-				cmdOk = 1
-				headerOk = 0
+				log.Println(err)
+				break
 			}
-		case CHANGEBAUD:
-			serialOk = 0
-			sfd.Close()
-
-			c.Baud = 115200
-			sfd, err = serial.OpenPort(c)
+			cmdOk = 1
+		case REQBAUDRATECHANGE:
+			err = sbs32ReqBaudChangeResp(sfd, r, c)
 			if err != nil {
-				log.Fatalln(err)
-			} else {
-				serialOk = 1
+				cmdOk = -1
+				log.Println(err)
+				break
 			}
+			cmdOk = 1
+		case REQSWVERSION:
+			err = sbs32VersionResp(sfd, r)
+			if err != nil {
+				cmdOk = -1
+				log.Println(err)
+				break
+			}
+			cmdOk = 1
 		case ERROR:
 			log.Fatalln("Fatal error - exit")
 		default:
@@ -202,38 +155,39 @@ func sbs32WaitForHeader(s *serial.Port, r *bufio.Reader) error {
 	for {
 		buf, err := r.ReadByte()
 		if err != nil {
-			return err
+			return fmt.Errorf("sbs32WaitForHeader: %w", err)
 		}
 		if buf == h[0] {
+			// Debug
 			log.Printf("Received first header byte [%x]\n", buf)
 			break
-		} else {
-			continue
 		}
 	}
 
 	// get second header byte
 	buf, err := r.ReadByte()
 	if err != nil {
-		return err
+		return fmt.Errorf("sbs32WaitForHeader: %w", err)
 	}
 
-	if buf == h[1] {
-		log.Printf("Received second header byte [%x]\n", buf)
-	} else {
-		return errors.New("second header byte does not match prrotocol")
+	if buf != h[1] {
+		return errors.New("sbs32WaitForHeader: second header byte does not match prrotocol")
+
 	}
+
+	// Debug
+	log.Printf("Received second header byte [%x]\n", buf)
 
 	// send ack byte
 	_, err = s.Write([]byte{'\xF2'})
 	if err != nil {
-		return err
+		return fmt.Errorf("sbs32WaitForHeader: %w", err)
 	}
 
 	// get ack echo byte
 	buf, err = r.ReadByte()
 	if err != nil {
-		return err
+		return fmt.Errorf("sbs32WaitForHeader: %w", err)
 	}
 
 	if buf != '\xF2' {
@@ -332,41 +286,36 @@ func sbs32WaitForCmd(s *serial.Port, r *bufio.Reader) (cmd, error) {
 	}
 }
 
-func sbs32WaitForFPId(s *serial.Port) ([]byte, error) {
+func sbs32WaitForFPId(s *serial.Port, r *bufio.Reader) ([]byte, error) {
 	id := make([]byte, 5)
 
 	for i := 0; i < len(id); i++ {
-		buf := make([]byte, 1)
-		_, err := s.Read(buf)
+		buf, err := r.ReadByte()
 		if err != nil {
-			return id, err
+			return id, fmt.Errorf("sbs32WaitForFPId: %w", err)
 		} else {
-			s.Write(buf)
-			id[i] = buf[0]
+			s.Write([]byte{buf})
+			id[i] = buf
 		}
 	}
+
 	return id, nil
 }
 
-func sbs32WaitForFooter(s *serial.Port) error {
-	buf := make([]byte, 1)
-	_, err := s.Read(buf)
+func sbs32WaitForFooter(r *bufio.Reader) error {
+	buf, err := r.ReadByte()
 	if err != nil {
-		return err
+		return fmt.Errorf("sbs32WaitForFooter: %w", err)
 	}
 
-	// Debug
-	log.Println(buf)
-
-	if buf[0] == '\x4f' {
-		return nil
-	} else {
-		s.Flush()
-		return errors.New("invalid footer received")
+	if buf != '\x4F' {
+		return errors.New("sbs32WaitForFooter: invalid footer received")
 	}
+
+	return nil
 }
 
-func sbs32SendConnectorVal(s *serial.Port) error {
+func sbs32SendConnData(s *serial.Port) error {
 	data := []byte{
 		'\x45', '\x4E', '\x41', '\x42', '\x44', '\x49', '\x41', '\x33', '\x2E', '\x4F', '\x55', '\x54', '\x33', '\x36', '\x30', '\x30',
 		'\x30', '\x30', '\x30', '\x30', '\x4F', '\x39', '\x45', '\x30', '\x30', '\x45', '\x42', '\x32', '\x43', '\x30', '\x30', '\x32',
@@ -376,54 +325,50 @@ func sbs32SendConnectorVal(s *serial.Port) error {
 
 	_, err := s.Write(data)
 	if err != nil {
-		return err
+		return fmt.Errorf("sbs32SendConnData: %w", err)
 	}
+
 	return nil
 }
 
-func sbs32EchoPayloadBaud(s *serial.Port) error {
-	buf := make([]byte, 1)
+func sbs32EchoPayloadBaud(s *serial.Port, r *bufio.Reader) error {
+	// Receive 4 bytes of payload and just echo back
 	for i := 0; i < 4; i++ {
-		_, err := s.Read(buf)
+		buf, err := r.ReadByte()
 		if err != nil {
-			return err
+			return fmt.Errorf("sbs32EchoPayloadBaud: %w", err)
 		}
-		s.Write(buf)
+		_, err = s.Write([]byte{buf})
+		if err != nil {
+			return fmt.Errorf("sbs32EchoPayloadBaud: %w", err)
+		}
 	}
+
 	return nil
 }
 
-func sbs32WaitForFooterBaud(s *serial.Port) error {
+func sbs32WaitForFooterBaud(r *bufio.Reader) error {
 	footer := []byte{'\x4F', '\xFC', '\xFC', '\xFC', '\xFC', '\xFC'}
-	buf := make([]byte, 1)
-	rcv := make([]byte, 6)
 
+	// Receive 6 bytes
 	for i := 0; i < 6; {
-		n, err := s.Read(buf)
+		buf, err := r.ReadByte()
 		if err != nil {
-			return err
+			return fmt.Errorf("sbs32WaitForFooterBaud: %w", err)
 		}
-		rcv[i] = buf[0]
-		i = i + n
+		if buf != footer[i] {
+			return errors.New("sbs32WaitForFooterBaud: footer does not match")
+		}
 	}
 
-	if bytes.Equal(buf, footer) {
-		return nil
-	} else {
-		s.Flush()
-		return errors.New("footer does not match")
-	}
+	return nil
 }
 
-func sbs32VersionQuery(s *serial.Port, r *bufio.Reader) error {
+func sbs32VersionResp(s *serial.Port, r *bufio.Reader) error {
 	// Get footer byte
-	buf, err := r.ReadByte()
+	err := sbs32WaitForFooter(r)
 	if err != nil {
-		return err
-	}
-
-	if buf != '\x4F' {
-		return errors.New("invalid footer received")
+		return fmt.Errorf("sbs32VersionResp: %w", err)
 	}
 
 	// Send version data
@@ -435,7 +380,53 @@ func sbs32VersionQuery(s *serial.Port, r *bufio.Reader) error {
 
 	_, err = s.Write(data)
 	if err != nil {
-		return err
+		return fmt.Errorf("sbs32VersionResp: %w", err)
 	}
+
+	return nil
+}
+
+func sbs32ReqConnByIdResp(s *serial.Port, r *bufio.Reader) error {
+	// Wait for FP ID
+	adr, err := sbs32WaitForFPId(s, r)
+	if err != nil {
+		return fmt.Errorf("sbs32ReqConnByIdResp: %w", err)
+	}
+
+	// Debug
+	log.Println(adr)
+
+	err = sbs32WaitForFooter(r)
+	if err != nil {
+		return fmt.Errorf("sbs32ReqConnByIdResp: %w", err)
+	}
+
+	err = sbs32SendConnData(s)
+	if err != nil {
+		return fmt.Errorf("sbs32ReqConnByIdResp: %w", err)
+	}
+
+	return nil
+}
+
+func sbs32ReqBaudChangeResp(s *serial.Port, r *bufio.Reader, c *serial.Config) error {
+	err := sbs32EchoPayloadBaud(s, r)
+	if err != nil {
+		return fmt.Errorf("sbs32ReqBaudChangeResp: %w", err)
+	}
+
+	err = sbs32WaitForFooterBaud(r)
+	if err != nil {
+		return fmt.Errorf("sbs32ReqBaudChangeResp: %w", err)
+	}
+
+	// Change serial port baudrate to 115200
+	s.Close()
+	c.Baud = 115200
+	s, err = serial.OpenPort(c)
+	if err != nil {
+		return fmt.Errorf("sbs32ReqBaudChangeResp: %w", err)
+	}
+
 	return nil
 }
