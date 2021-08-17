@@ -287,7 +287,7 @@ func sbs32WaitForCmd(s *serial.Port, r *bufio.Reader) (cmd, error) {
 }
 
 func sbs32WaitForFPId(s *serial.Port, r *bufio.Reader) ([]byte, error) {
-	id := make([]byte, 5)
+	id := make([]byte, 8)
 
 	for i := 0; i < len(id); i++ {
 		buf, err := r.ReadByte()
