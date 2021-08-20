@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/tarm/serial"
 )
@@ -17,6 +18,7 @@ const (
 	REQCONNECTORBYID
 	REQBAUDRATECHANGE
 	REQSWVERSION
+	REQEVENTS
 	ERROR
 )
 
@@ -46,7 +48,7 @@ func main() {
 	r := bufio.NewReader(sfd)
 
 	// initial conditions
-	headerOk := 0
+	header := 0
 	cmdOk := 0
 	selCmd := NA
 	state := WAITFORHEADER
@@ -55,8 +57,10 @@ func main() {
 	for {
 		switch state {
 		case WAITFORHEADER:
-			if headerOk == 1 {
+			if header == 1 {
 				state = WAITFORCMD
+			} else if header == 2 {
+				state = REQEVENTS
 			} else {
 				state = WAITFORHEADER
 			}
@@ -67,9 +71,9 @@ func main() {
 				state = REQCONNECTORBYID
 			} else if selCmd == GETSWVERSION {
 				state = REQSWVERSION
-			} else if selCmd == NA && headerOk == 1 {
+			} else if selCmd == NA && header == 1 {
 				state = WAITFORCMD
-			} else if selCmd == NA && headerOk == 0 {
+			} else if selCmd == NA && header == 0 {
 				state = WAITFORHEADER
 			} else {
 				state = ERROR
@@ -92,6 +96,12 @@ func main() {
 			} else {
 				state = WAITFORHEADER
 			}
+		case REQEVENTS:
+			if cmdOk == 0 {
+				state = REQEVENTS
+			} else {
+				state = WAITFORHEADER
+			}
 		default:
 			state = ERROR
 		}
@@ -100,15 +110,12 @@ func main() {
 		case WAITFORHEADER:
 			cmdOk = 0
 			selCmd = NA
-			err = sbs32WaitForHeader(sfd, r)
+			header, err = sbs32WaitForHeader(sfd, r)
 			if err != nil {
-				headerOk = 0
 				log.Println(err)
-			} else {
-				headerOk = 1
 			}
 		case WAITFORCMD:
-			headerOk = 0
+			header = 0
 			selCmd, err = sbs32WaitForCmd(sfd, r)
 			if err != nil {
 				selCmd = NA
@@ -138,26 +145,32 @@ func main() {
 				break
 			}
 			cmdOk = 1
+		case REQEVENTS:
+			header = 0
+			err = sbs32ReqEventsResp(sfd, r)
+			if err != nil {
+				cmdOk = -1
+				log.Println(err)
+				break
+			}
+			cmdOk = 1
 		case ERROR:
 			log.Fatalln("Fatal error - exit")
 		default:
 			log.Fatalln("Failed to default state on actions switch/case")
 		}
-
 	}
 }
 
-func sbs32WaitForHeader(s *serial.Port, r *bufio.Reader) error {
-	// header we are expecting
-	h := []byte{'\x00', '\xF1'}
-
+func sbs32WaitForHeader(s *serial.Port, r *bufio.Reader) (int, error) {
 	// wait for first header byte
+	log.Println("sbs32WaitForHeader: Waiting for header")
 	for {
 		buf, err := r.ReadByte()
 		if err != nil {
-			return fmt.Errorf("sbs32WaitForHeader: %w", err)
+			return 0, fmt.Errorf("sbs32WaitForHeader: %w", err)
 		}
-		if buf == h[0] {
+		if buf == '\x00' {
 			// Debug
 			log.Printf("Received first header byte [%x]\n", buf)
 			break
@@ -167,34 +180,45 @@ func sbs32WaitForHeader(s *serial.Port, r *bufio.Reader) error {
 	// get second header byte
 	buf, err := r.ReadByte()
 	if err != nil {
-		return fmt.Errorf("sbs32WaitForHeader: %w", err)
+		return 0, fmt.Errorf("sbs32WaitForHeader: %w", err)
 	}
 
-	if buf != h[1] {
-		return errors.New("sbs32WaitForHeader: second header byte does not match prrotocol")
-
+	// If second byte
+	if buf != '\xF1' && buf != '\x4F' {
+		return 0, errors.New("sbs32WaitForHeader: second header byte does not match protocol")
 	}
 
 	// Debug
 	log.Printf("Received second header byte [%x]\n", buf)
 
-	// send ack byte
-	_, err = s.Write([]byte{'\xF2'})
-	if err != nil {
-		return fmt.Errorf("sbs32WaitForHeader: %w", err)
-	}
+	if buf == '\xF1' {
+		// send ack byte for standard header
+		_, err = s.Write([]byte{'\xF2'})
+		if err != nil {
+			return 0, fmt.Errorf("sbs32WaitForHeader: %w", err)
+		}
 
-	// get ack echo byte
-	buf, err = r.ReadByte()
-	if err != nil {
-		return fmt.Errorf("sbs32WaitForHeader: %w", err)
-	}
+		// get ack echo byte
+		buf, err = r.ReadByte()
+		if err != nil {
+			return 0, fmt.Errorf("sbs32WaitForHeader: %w", err)
+		}
 
-	if buf != '\xF2' {
-		return errors.New("ack echo byte does not match")
-	}
+		if buf != '\xF2' {
+			return 0, errors.New("ack echo byte does not match")
+		}
 
-	return nil
+		return 1, nil
+
+	} else {
+		// send echo for events header
+		_, err = s.Write([]byte{'\x4F'})
+		if err != nil {
+			return 0, fmt.Errorf("sbs32WaitForHeader: %w", err)
+		}
+
+		return 2, nil
+	}
 }
 
 // cmd list
@@ -426,6 +450,91 @@ func sbs32ReqBaudChangeResp(s *serial.Port, r *bufio.Reader, c *serial.Config) e
 	s, err = serial.OpenPort(c)
 	if err != nil {
 		return fmt.Errorf("sbs32ReqBaudChangeResp: %w", err)
+	}
+
+	return nil
+}
+
+func sbs32ReqEventsResp(s *serial.Port, r *bufio.Reader) error {
+	// Receive and echo 21 bytes
+	// This byte have the type of events requested
+	for i := 0; i < 21; i++ {
+		_, err := r.ReadByte()
+		if err != nil {
+			return fmt.Errorf("sbs32ReqEventsResp: %w", err)
+		}
+
+		buf, err := r.ReadByte()
+		if err != nil {
+			return fmt.Errorf("sbs32ReqEventsResp: %w", err)
+		}
+
+		_, err = s.Write([]byte{buf})
+		if err != nil {
+			return fmt.Errorf("sbs32ReqEventsResp: %w", err)
+		}
+	}
+
+	// Get cmd footer
+	buf, err := r.ReadByte()
+	if err != nil {
+		return fmt.Errorf("sbs32ReqEventsResp: %w", err)
+	}
+
+	if buf != '\x4E' {
+		return errors.New("sbs32ReqEventsResp: command footer 1st byte does not match")
+	}
+
+	buf, err = r.ReadByte()
+	if err != nil {
+		return fmt.Errorf("sbs32ReqEventsResp: %w", err)
+	}
+
+	if buf != '\x4F' {
+		return errors.New("sbs32ReqEventsResp: command footer 2nd byte does not match")
+	}
+
+	// Get data to send
+	fd, err := os.Open("data/cpa4000-events-example.txt")
+	if err != nil {
+		return fmt.Errorf("sbs32ReqEventsResp: %w", err)
+	}
+	defer fd.Close()
+	fr := bufio.NewReader(fd)
+
+	for {
+		d, err := fr.ReadByte()
+		if err != nil {
+			log.Printf("sbs32ReqEventsResp: %s\n", err)
+			break
+		}
+
+		// Send data byte
+		_, err = s.Write([]byte{d})
+		if err != nil {
+			return fmt.Errorf("sbs32ReqEventsResp: %w", err)
+		}
+
+		// Receive echo byte
+		buf, err = r.ReadByte()
+		if err != nil {
+			return fmt.Errorf("sbs32ReqEventsResp: %w", err)
+		}
+
+		if buf == d {
+			continue
+		}
+
+		if buf == '\x23' {
+			log.Println("Received stop command")
+			break
+		}
+	}
+
+	// End of frame
+	_, err = s.Write([]byte{'\x02'})
+	if err != nil {
+		return fmt.Errorf("sbs32ReqEventsResp: %w", err)
 	}
 
 	return nil
