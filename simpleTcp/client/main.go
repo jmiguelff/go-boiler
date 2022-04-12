@@ -1,16 +1,18 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"net"
 )
 
 func main() {
-	// TODO: Change client parameters and message to send user input
+	dstPtr := flag.String("dst", "localhost:8000", "data destinantion")
+	flag.Parse()
+
 	// Get the IP struct from hostname
-	servAddr := "localhost:3000"
-	tcpAddr, err := net.ResolveTCPAddr("tcp", servAddr)
+	tcpAddr, err := net.ResolveTCPAddr("tcp", *dstPtr)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -18,7 +20,7 @@ func main() {
 	// Connect to the server
 	conn, err := net.DialTCP("tcp", nil, tcpAddr)
 	if err != nil {
-		fmt.Println("Fail to connect to ", servAddr)
+		fmt.Println("Fail to connect to ", *dstPtr)
 		log.Fatalln(err)
 	}
 	// Close socket after return from main
@@ -32,7 +34,7 @@ func main() {
 	}
 	fmt.Println("Message sent: ", strEcho)
 
-	// Handle the retry from server
+	// Handle the reply from server
 	reply := make([]byte, 1400)
 	_, err = conn.Read(reply)
 	if err != nil {
