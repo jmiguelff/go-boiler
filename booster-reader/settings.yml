@@ -1,0 +1,6 @@
+serialConf:
+  name: Port1
+  device: /dev/ttymxc0
+  baud: 19200
+  stopbits: 1
+  parity: N
