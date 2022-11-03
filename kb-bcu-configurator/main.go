@@ -1,16 +1,134 @@
 package main
 
 import (
-	"encoding/hex"
+	"bytes"
+	"encoding/binary"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
+
+	"gopkg.in/yaml.v2"
 )
+
+type Can_id struct {
+	Id   uint32 `yaml:"id"`
+	Size uint8  `yaml:"size"`
+	Nv   uint8  `yaml:"nv"`
+}
+
+type Kcf_opt struct {
+	Hdr_data string `yaml:"header"`
+	Udp_net  struct {
+		Ip     string `yaml:"ip"`
+		Port   uint32 `yaml:"port"`
+		Period uint32 `yaml:"period"`
+	} `yaml:"udp"`
+	Can_ids []Can_id `yaml:"can"`
+}
+
+type Can_msg struct {
+	CANID [4]byte
+	SIZE  byte
+	TYPE  byte
+}
+
+type Kcf_msg struct {
+	KCF_CHTYPE_CONT        [4]byte
+	CHUNK_LEN              [4]byte
+	KCF_CHTYPE_CONT_HDR    [4]byte
+	HDR_LENGTH             [4]byte
+	HDR_DATA               []byte
+	PADDING                [2]byte
+	KCF_CHTYPE_CAN_CFG_HDR [4]byte
+	CFG_CAN_DATA_LEN       [4]byte
+	IP_ADDRESS             [4]byte
+	PORT                   [4]byte
+	NBR_CANIDS             [4]byte
+	CYCLE_UDP_PERIOD       [4]byte
+	CAN                    []Can_msg
+	KCF_MSG                []byte
+}
+
+func ip_to_bin(ip string) uint32 {
+	var ret uint32
+	binary.Read(bytes.NewBuffer(net.ParseIP(ip).To4()), binary.BigEndian, &ret)
+	return ret
+}
 
 func main() {
 	dstPtr := flag.String("dst", "localhost:8000", "data destinantion")
 	flag.Parse()
+
+	// Open yaml file
+	fd, err := ioutil.ReadFile("kcf-parameters.yaml")
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	// Unmarshal yaml file
+	var kcf_opts Kcf_opt
+	err = yaml.Unmarshal(fd, &kcf_opts)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	fmt.Println("KCF CONFIGURATIONS FROM FILE")
+	fmt.Println(kcf_opts.Hdr_data)
+	fmt.Println(kcf_opts.Udp_net.Ip)
+	fmt.Println(kcf_opts.Udp_net.Port)
+	fmt.Println(kcf_opts.Udp_net.Period)
+	for _, v := range kcf_opts.Can_ids {
+		fmt.Println(v.Id)
+		fmt.Println(v.Size)
+		fmt.Println(v.Nv)
+	}
+
+	// Create Default KCF TODO: Automatic calculation of length values
+	var kcfFrame Kcf_msg
+	binary.BigEndian.PutUint32(kcfFrame.KCF_CHTYPE_CONT[:], 0)
+	binary.BigEndian.PutUint32(kcfFrame.CHUNK_LEN[:], 0xc6)
+	binary.BigEndian.PutUint32(kcfFrame.KCF_CHTYPE_CONT_HDR[:], 0x01)
+
+	binary.BigEndian.PutUint32(kcfFrame.HDR_LENGTH[:], 138)
+	kcfFrame.HDR_DATA = []byte(kcf_opts.Hdr_data)
+	binary.BigEndian.PutUint16(kcfFrame.PADDING[:], 0)
+	binary.BigEndian.PutUint32(kcfFrame.KCF_CHTYPE_CAN_CFG_HDR[:], 0x1f)
+	binary.BigEndian.PutUint32(kcfFrame.CFG_CAN_DATA_LEN[:], 0x2a)
+	binary.BigEndian.PutUint32(kcfFrame.IP_ADDRESS[:], ip_to_bin(kcf_opts.Udp_net.Ip))
+	binary.BigEndian.PutUint32(kcfFrame.PORT[:], uint32(kcf_opts.Udp_net.Port))
+
+	binary.BigEndian.PutUint32(kcfFrame.NBR_CANIDS[:], uint32(len(kcf_opts.Can_ids)))
+	binary.BigEndian.PutUint32(kcfFrame.CYCLE_UDP_PERIOD[:], uint32(kcf_opts.Udp_net.Period))
+
+	var aux Can_msg
+	for _, c := range kcf_opts.Can_ids {
+		binary.BigEndian.PutUint32(aux.CANID[:], c.Id)
+		aux.SIZE = byte(c.Size)
+		aux.TYPE = byte(c.Nv)
+		kcfFrame.CAN = append(kcfFrame.CAN, aux)
+	}
+
+	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.KCF_CHTYPE_CONT[:]...)
+	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.CHUNK_LEN[:]...)
+	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.KCF_CHTYPE_CONT_HDR[:]...)
+	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.HDR_LENGTH[:]...)
+	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.HDR_DATA...)
+	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.PADDING[:]...)
+	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.KCF_CHTYPE_CAN_CFG_HDR[:]...)
+	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.CFG_CAN_DATA_LEN[:]...)
+	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.IP_ADDRESS[:]...)
+	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.PORT[:]...)
+	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.NBR_CANIDS[:]...)
+	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.CYCLE_UDP_PERIOD[:]...)
+
+	for _, v := range kcfFrame.CAN {
+		kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, v.CANID[:]...)
+		kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, v.SIZE, v.TYPE)
+	}
+
+	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, 0xff, 0xee)
 
 	// Get the IP struct from hostname
 	tcpAddr, err := net.ResolveTCPAddr("tcp", *dstPtr)
@@ -27,55 +145,9 @@ func main() {
 	// Close socket after return from main
 	defer conn.Close()
 
-	// Create Default KCF
-	KCF_CHTYPE_CONT := "00000000"
-	CHUNK_LEN := "000000c6"
-	KCF_CHTYPE_CONT_HDR := "00000001"
-
-	HDR_LENGTH := "0000008a"
-	HDR_DATA_ASCII := []byte("Suitable.for:...STN49089.v01.37.KCF:STN49089/KCF.ver.:01.05.....Date:2022-10-10.Author:.J.Ferreira..............TOOL.ver.00.06..HEADERv03$")
-	HDR_DATA := hex.EncodeToString(HDR_DATA_ASCII)
-	PADDING := "0000"
-
-	KCF := KCF_CHTYPE_CONT + CHUNK_LEN + KCF_CHTYPE_CONT_HDR + HDR_LENGTH + HDR_DATA + PADDING
-
-	KCF_CHTYPE_CAN_CFG_HDR := "0000001f"
-	CFG_CAN_DATA_LEN := "0000002a"
-	IP_ADDRESS := "0a6e1701"
-	PORT := "00003a9d"
-
-	KCF = KCF + KCF_CHTYPE_CAN_CFG_HDR + CFG_CAN_DATA_LEN + IP_ADDRESS + PORT
-
-	NBR_CANIDS := "00000004"
-	CYCLE_UDP_PERIOD := "000001f4"
-
-	CANID_1 := "00000021"
-	SIZE_1 := "08"
-	TYPE_1 := "02"
-
-	CANID_2 := "00000682"
-	SIZE_2 := "08"
-	TYPE_2 := "02"
-
-	CANID_3 := "00000686"
-	SIZE_3 := "08"
-	TYPE_3 := "02"
-
-	CANID_4 := "000006a0"
-	SIZE_4 := "08"
-	TYPE_4 := "02"
-
-	EOF := "ffee"
-
-	KCF = KCF + NBR_CANIDS + CYCLE_UDP_PERIOD + CANID_1 + SIZE_1 + TYPE_1 + CANID_2 + SIZE_2 + TYPE_2 + CANID_3 + SIZE_3 + TYPE_3 + CANID_4 + SIZE_4 + TYPE_4 + EOF
-	msg, err := hex.DecodeString(KCF)
+	_, err = conn.Write(kcfFrame.KCF_MSG)
 	if err != nil {
 		log.Fatalln(err)
 	}
-
-	_, err = conn.Write(msg)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	fmt.Println("Message sent: ", msg)
+	fmt.Println("Message sent: ", kcfFrame.KCF_MSG)
 }

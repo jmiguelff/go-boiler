@@ -1,0 +1,12 @@
+header: "Suitable.for:...STN49089.v01.37.KCF:STN49089/KCF.ver.:01.05.....Date:2022-10-10.Author:.J.Ferreira..............TOOL.ver.00.06..HEADERv03$"
+udp:
+  ip: "10.110.23.1"
+  port: 15005
+  period: 500
+can:
+  - id: 0x00000085
+    size: 8
+    nv: 0
+  - id: 0x00000286
+    size: 2
+    nv: 0
