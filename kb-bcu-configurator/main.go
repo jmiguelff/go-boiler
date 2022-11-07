@@ -88,14 +88,14 @@ func main() {
 	// Create Default KCF TODO: Automatic calculation of length values
 	var kcfFrame Kcf_msg
 	binary.BigEndian.PutUint32(kcfFrame.KCF_CHTYPE_CONT[:], 0)
-	binary.BigEndian.PutUint32(kcfFrame.CHUNK_LEN[:], 0xc6)
+	binary.BigEndian.PutUint32(kcfFrame.CHUNK_LEN[:], 0)
 	binary.BigEndian.PutUint32(kcfFrame.KCF_CHTYPE_CONT_HDR[:], 0x01)
 
-	binary.BigEndian.PutUint32(kcfFrame.HDR_LENGTH[:], 138)
+	binary.BigEndian.PutUint32(kcfFrame.HDR_LENGTH[:], uint32(len(kcf_opts.Hdr_data)))
 	kcfFrame.HDR_DATA = []byte(kcf_opts.Hdr_data)
 	binary.BigEndian.PutUint16(kcfFrame.PADDING[:], 0)
 	binary.BigEndian.PutUint32(kcfFrame.KCF_CHTYPE_CAN_CFG_HDR[:], 0x1f)
-	binary.BigEndian.PutUint32(kcfFrame.CFG_CAN_DATA_LEN[:], 0x2a)
+
 	binary.BigEndian.PutUint32(kcfFrame.IP_ADDRESS[:], ip_to_bin(kcf_opts.Udp_net.Ip))
 	binary.BigEndian.PutUint32(kcfFrame.PORT[:], uint32(kcf_opts.Udp_net.Port))
 
@@ -109,6 +109,18 @@ func main() {
 		aux.TYPE = byte(c.Nv)
 		kcfFrame.CAN = append(kcfFrame.CAN, aux)
 	}
+	chunkLength := len(kcfFrame.KCF_CHTYPE_CONT) + len(kcfFrame.CHUNK_LEN) +
+		len(kcfFrame.KCF_CHTYPE_CONT_HDR) + len(kcfFrame.HDR_LENGTH) +
+		len(kcf_opts.Hdr_data) + len(kcfFrame.PADDING) +
+		len(kcfFrame.KCF_CHTYPE_CAN_CFG_HDR) + len(kcfFrame.CFG_CAN_DATA_LEN) +
+		len(kcfFrame.IP_ADDRESS) + len(kcfFrame.PORT) + len(kcfFrame.NBR_CANIDS) +
+		len(kcfFrame.CYCLE_UDP_PERIOD) + (6 * len(kcf_opts.Can_ids))
+	binary.BigEndian.PutUint32(kcfFrame.CHUNK_LEN[:], uint32(chunkLength))
+
+	cfgLength := len(kcfFrame.KCF_CHTYPE_CAN_CFG_HDR) + len(kcfFrame.CFG_CAN_DATA_LEN) +
+		len(kcfFrame.IP_ADDRESS) + len(kcfFrame.PORT) + len(kcfFrame.NBR_CANIDS) +
+		len(kcfFrame.CYCLE_UDP_PERIOD) + (6 * len(kcf_opts.Can_ids))
+	binary.BigEndian.PutUint32(kcfFrame.CFG_CAN_DATA_LEN[:], uint32(cfgLength))
 
 	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.KCF_CHTYPE_CONT[:]...)
 	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.CHUNK_LEN[:]...)
@@ -122,13 +134,15 @@ func main() {
 	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.PORT[:]...)
 	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.NBR_CANIDS[:]...)
 	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.CYCLE_UDP_PERIOD[:]...)
-
+	// CAN ID ports from settings file
 	for _, v := range kcfFrame.CAN {
 		kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, v.CANID[:]...)
 		kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, v.SIZE, v.TYPE)
 	}
-
+	// End of frame bytes
 	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, 0xff, 0xee)
+
+	fmt.Println(kcfFrame.KCF_MSG, len(kcfFrame.KCF_MSG)-2)
 
 	// Get the IP struct from hostname
 	tcpAddr, err := net.ResolveTCPAddr("tcp", *dstPtr)
