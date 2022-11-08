@@ -114,12 +114,12 @@ func main() {
 		len(kcf_opts.Hdr_data) + len(kcfFrame.PADDING) +
 		len(kcfFrame.KCF_CHTYPE_CAN_CFG_HDR) + len(kcfFrame.CFG_CAN_DATA_LEN) +
 		len(kcfFrame.IP_ADDRESS) + len(kcfFrame.PORT) + len(kcfFrame.NBR_CANIDS) +
-		len(kcfFrame.CYCLE_UDP_PERIOD) + (6 * len(kcf_opts.Can_ids))
+		len(kcfFrame.CYCLE_UDP_PERIOD) + (6 * len(kcf_opts.Can_ids)) - 6
 	binary.BigEndian.PutUint32(kcfFrame.CHUNK_LEN[:], uint32(chunkLength))
 
 	cfgLength := len(kcfFrame.KCF_CHTYPE_CAN_CFG_HDR) + len(kcfFrame.CFG_CAN_DATA_LEN) +
 		len(kcfFrame.IP_ADDRESS) + len(kcfFrame.PORT) + len(kcfFrame.NBR_CANIDS) +
-		len(kcfFrame.CYCLE_UDP_PERIOD) + (6 * len(kcf_opts.Can_ids))
+		len(kcfFrame.CYCLE_UDP_PERIOD) + (6 * len(kcf_opts.Can_ids)) - 6
 	binary.BigEndian.PutUint32(kcfFrame.CFG_CAN_DATA_LEN[:], uint32(cfgLength))
 
 	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.KCF_CHTYPE_CONT[:]...)
@@ -142,7 +142,11 @@ func main() {
 	// End of frame bytes
 	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, 0xff, 0xee)
 
-	fmt.Println(kcfFrame.KCF_MSG, len(kcfFrame.KCF_MSG)-2)
+	for _, v := range kcfFrame.KCF_MSG {
+		fmt.Printf("%X ", v)
+	}
+	fmt.Printf("\n")
+	// fmt.Println(kcfFrame.KCF_MSG, len(kcfFrame.KCF_MSG)-2)
 
 	// Get the IP struct from hostname
 	tcpAddr, err := net.ResolveTCPAddr("tcp", *dstPtr)
@@ -163,5 +167,5 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
-	fmt.Println("Message sent: ", kcfFrame.KCF_MSG)
+	// fmt.Println("Message sent: ", kcfFrame.KCF_MSG)
 }
