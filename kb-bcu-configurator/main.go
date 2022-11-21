@@ -48,6 +48,7 @@ type Kcf_msg struct {
 	NBR_CANIDS             [4]byte
 	CYCLE_UDP_PERIOD       [4]byte
 	CAN                    []Can_msg
+	EOF                    [2]byte
 	KCF_MSG                []byte
 }
 
@@ -74,16 +75,17 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	fmt.Println("KCF CONFIGURATIONS FROM FILE")
-	fmt.Println(kcf_opts.Hdr_data)
-	fmt.Println(kcf_opts.Udp_net.Ip)
-	fmt.Println(kcf_opts.Udp_net.Port)
-	fmt.Println(kcf_opts.Udp_net.Period)
-	for _, v := range kcf_opts.Can_ids {
-		fmt.Println(v.Id)
-		fmt.Println(v.Size)
-		fmt.Println(v.Nv)
-	}
+	/*
+		fmt.Println("KCF CONFIGURATIONS FROM FILE")
+		fmt.Println(kcf_opts.Hdr_data)
+		fmt.Println(kcf_opts.Udp_net.Ip)
+		fmt.Println(kcf_opts.Udp_net.Port)
+		fmt.Println(kcf_opts.Udp_net.Period)
+		for _, v := range kcf_opts.Can_ids {
+			fmt.Println(v.Id)
+			fmt.Println(v.Size)
+			fmt.Println(v.Nv)
+		}*/
 
 	// Create Default KCF TODO: Automatic calculation of length values
 	var kcfFrame Kcf_msg
@@ -101,6 +103,7 @@ func main() {
 
 	binary.BigEndian.PutUint32(kcfFrame.NBR_CANIDS[:], uint32(len(kcf_opts.Can_ids)))
 	binary.BigEndian.PutUint32(kcfFrame.CYCLE_UDP_PERIOD[:], uint32(kcf_opts.Udp_net.Period))
+	kcfFrame.EOF = [2]byte{0xff, 0xee}
 
 	var aux Can_msg
 	for _, c := range kcf_opts.Can_ids {
@@ -109,18 +112,20 @@ func main() {
 		aux.TYPE = byte(c.Nv)
 		kcfFrame.CAN = append(kcfFrame.CAN, aux)
 	}
-	chunkLength := len(kcfFrame.KCF_CHTYPE_CONT) + len(kcfFrame.CHUNK_LEN) +
-		len(kcfFrame.KCF_CHTYPE_CONT_HDR) + len(kcfFrame.HDR_LENGTH) +
+	chunkLength := len(kcfFrame.KCF_CHTYPE_CONT_HDR) + len(kcfFrame.HDR_LENGTH) +
 		len(kcf_opts.Hdr_data) + len(kcfFrame.PADDING) +
 		len(kcfFrame.KCF_CHTYPE_CAN_CFG_HDR) + len(kcfFrame.CFG_CAN_DATA_LEN) +
 		len(kcfFrame.IP_ADDRESS) + len(kcfFrame.PORT) + len(kcfFrame.NBR_CANIDS) +
-		len(kcfFrame.CYCLE_UDP_PERIOD) + (6 * len(kcf_opts.Can_ids)) - 6
+		len(kcfFrame.CYCLE_UDP_PERIOD) + (6 * len(kcf_opts.Can_ids)) + len(kcfFrame.EOF)
 	binary.BigEndian.PutUint32(kcfFrame.CHUNK_LEN[:], uint32(chunkLength))
 
-	cfgLength := len(kcfFrame.KCF_CHTYPE_CAN_CFG_HDR) + len(kcfFrame.CFG_CAN_DATA_LEN) +
-		len(kcfFrame.IP_ADDRESS) + len(kcfFrame.PORT) + len(kcfFrame.NBR_CANIDS) +
-		len(kcfFrame.CYCLE_UDP_PERIOD) + (6 * len(kcf_opts.Can_ids)) - 6
+	fmt.Println(chunkLength)
+
+	cfgLength := len(kcfFrame.IP_ADDRESS) + len(kcfFrame.PORT) + len(kcfFrame.NBR_CANIDS) +
+		len(kcfFrame.CYCLE_UDP_PERIOD) + (6 * len(kcf_opts.Can_ids)) + len(kcfFrame.EOF)
 	binary.BigEndian.PutUint32(kcfFrame.CFG_CAN_DATA_LEN[:], uint32(cfgLength))
+
+	fmt.Println(cfgLength)
 
 	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.KCF_CHTYPE_CONT[:]...)
 	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.CHUNK_LEN[:]...)
@@ -140,7 +145,7 @@ func main() {
 		kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, v.SIZE, v.TYPE)
 	}
 	// End of frame bytes
-	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, 0xff, 0xee)
+	kcfFrame.KCF_MSG = append(kcfFrame.KCF_MSG, kcfFrame.EOF[:]...)
 
 	for _, v := range kcfFrame.KCF_MSG {
 		fmt.Printf("%X ", v)
