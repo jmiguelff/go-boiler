@@ -1,19 +1,18 @@
 package main
 
 import (
-	"bufio"
-	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"time"
 
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/tarm/serial"
 	"gopkg.in/yaml.v2"
 )
 
-// SerialOptT struct used to keep the YAML data
-type SerialOptT struct {
+// user_options_t struct used to keep the YAML data
+type user_options_t struct {
 	SerialConf struct {
 		Name     string `yaml:"name"`
 		Device   string `yaml:"device"`
@@ -22,7 +21,26 @@ type SerialOptT struct {
 		Stopbits int    `yaml:"stopbits"`
 		Parity   string `yaml:"parity"`
 		Timeout  int    `yaml:"timeout"`
-	} `yaml:"serialConf"`
+	} `yaml:"serialIn"`
+	MqttConf struct {
+		ClientId string `yaml:"clientId"`
+		Broker   string `yaml:"broker"`
+		Port     int    `yaml:"port"`
+		User     string `yaml:"user"`
+		Pw       string `yaml:"pw"`
+	} `yaml:"mqttOut"`
+}
+
+var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
+	log.Printf("Received message: %s from topic: %s\n", msg.Payload(), msg.Topic())
+}
+
+var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
+	log.Println("Connected")
+}
+
+var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
+	log.Printf("Connection lost: %v", err)
 }
 
 func main() {
@@ -33,74 +51,100 @@ func main() {
 	}
 
 	// Unmarshal yaml file
-	var serialOpts SerialOptT
-	err = yaml.Unmarshal(fd, &serialOpts)
+	var options user_options_t
+	err = yaml.Unmarshal(fd, &options)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	fmt.Printf("Serial port name: %s\n", serialOpts.SerialConf.Name)
-	fmt.Printf("\tDevice: %s\n", serialOpts.SerialConf.Device)
-	fmt.Printf("\tDatabits: %d\n", serialOpts.SerialConf.Size)
-	fmt.Printf("\tBaudrate: %d\n", serialOpts.SerialConf.Baud)
-	fmt.Printf("\tStopbits: %d\n", serialOpts.SerialConf.Stopbits)
-	fmt.Printf("\tParity: %s\n", serialOpts.SerialConf.Parity)
-	fmt.Printf("\tTimeout: %d\n", serialOpts.SerialConf.Timeout)
+	fmt.Printf("Serial port name: %s\n", options.SerialConf.Name)
+	fmt.Printf("\tDevice: %s\n", options.SerialConf.Device)
+	fmt.Printf("\tDatabits: %d\n", options.SerialConf.Size)
+	fmt.Printf("\tBaudrate: %d\n", options.SerialConf.Baud)
+	fmt.Printf("\tStopbits: %d\n", options.SerialConf.Stopbits)
+	fmt.Printf("\tParity: %s\n", options.SerialConf.Parity)
+	fmt.Printf("\tTimeout: %d\n", options.SerialConf.Timeout)
+
+	fmt.Printf("MQTT client id: %s\n", options.MqttConf.ClientId)
+	fmt.Printf("\tBroker: %s:%d\n", options.MqttConf.Broker, options.MqttConf.Port)
+	fmt.Printf("\tCredentials: %s - %s\n", options.MqttConf.User, options.MqttConf.Pw)
 
 	// Start serial port
 	cSerial := new(serial.Config)
-	cSerial.Name = serialOpts.SerialConf.Device
-	cSerial.Size = byte(serialOpts.SerialConf.Size)
-	cSerial.Baud = serialOpts.SerialConf.Baud
-	cSerial.StopBits = serial.StopBits(serialOpts.SerialConf.Stopbits)
-	cSerial.Parity = serial.Parity(serialOpts.SerialConf.Parity[0])
-	cSerial.ReadTimeout = time.Millisecond * time.Duration(serialOpts.SerialConf.Timeout)
+	cSerial.Name = options.SerialConf.Device
+	cSerial.Size = byte(options.SerialConf.Size)
+	cSerial.Baud = options.SerialConf.Baud
+	cSerial.StopBits = serial.StopBits(options.SerialConf.Stopbits)
+	cSerial.Parity = serial.Parity(options.SerialConf.Parity[0])
+	cSerial.ReadTimeout = time.Millisecond * time.Duration(options.SerialConf.Timeout)
 
 	fmt.Println("Opening serial port")
-
-	sfd, err := serial.OpenPort(cSerial)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	// Close serial port after usage
-	defer sfd.Close()
-
-	// Read data from booster
-	for {
-		reader := bufio.NewReader(sfd)
-		msg, err := reader.ReadBytes('\x0a')
+	/*
+		sfd, err := serial.OpenPort(cSerial)
 		if err != nil {
 			log.Fatalln(err)
 		}
+		// Close serial port after usage
+		defer sfd.Close()
+	*/
 
-		// Check min size
-		msgLen := len(msg)
-		if msgLen < 8 {
-			continue
-		}
+	mqttOpts := mqtt.NewClientOptions()
+	mqttOpts.AddBroker(fmt.Sprintf("tcp://%s:%d", options.MqttConf.Broker, options.MqttConf.Port))
+	mqttOpts.SetClientID(options.MqttConf.ClientId)
+	mqttOpts.SetUsername(options.MqttConf.User)
+	mqttOpts.SetPassword(options.MqttConf.Pw)
+	mqttOpts.SetDefaultPublishHandler(messagePubHandler)
+	mqttOpts.OnConnect = connectHandler
+	mqttOpts.OnConnectionLost = connectLostHandler
 
-		// Check SOF
-		if msg[0] != '\x02' {
-			continue
-		}
-
-		// Check payload length
-		if int(msg[1]) != (msgLen - 1) {
-			continue
-		}
-
-		// TODO: Test checksum
-		cksum := generateChecksum(msg)
-		if cksum != msg[msgLen-2] {
-			continue
-		}
-
-		str := hex.EncodeToString(msg)
-		log.Println(str)
+	mqttCli := mqtt.NewClient(mqttOpts)
+	if token := mqttCli.Connect(); token.Wait() && token.Error() != nil {
+		panic(token.Error())
 	}
+
+	// For debug test publish data
+	publish(mqttCli, "Ola", "topic/test")
+
+	mqttCli.Disconnect(250)
+	// Read data from booster
+	/*
+		for {
+			reader := bufio.NewReader(sfd)
+			msg, err := reader.ReadBytes('\x0a')
+			if err != nil {
+				log.Fatalln(err)
+			}
+
+			// Check min size
+			msgLen := len(msg)
+			if msgLen < 8 {
+				continue
+			}
+
+			// Check SOF
+			if msg[0] != '\x02' {
+				continue
+			}
+
+			// Check payload length
+			if int(msg[1]) != (msgLen - 1) {
+				continue
+			}
+
+			// TODO: Test checksum
+			cksum := generateChecksum(msg)
+			if cksum != msg[msgLen-2] {
+				continue
+			}
+
+			// str := hex.EncodeToString(msg)
+			str := string(msg[:])
+			log.Println(str)
+		}
+	*/
 }
 
+/*
 func generateChecksum(msg []byte) byte {
 	var sum byte
 	for _, b := range msg {
@@ -108,3 +152,17 @@ func generateChecksum(msg []byte) byte {
 	}
 	return ^sum
 }
+*/
+
+func publish(client mqtt.Client, msg string, topic string) {
+	token := client.Publish(topic, 1, false, msg)
+	token.Wait()
+}
+
+/*
+func sub(client mqtt.Client) {
+	topic := "topic/test"
+	token := client.Subscribe(topic, 1, nil)
+	token.Wait()
+	fmt.Printf("Subscribed to topic: %s", topic)
+}*/

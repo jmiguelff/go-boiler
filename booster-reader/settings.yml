@@ -1,6 +1,12 @@
-serialConf:
+serialIn:
   name: Port1
   device: /dev/ttymxc0
   baud: 19200
   stopbits: 1
   parity: N
+mqttOut:
+  clientId: booster-cli
+  broker: 10.40.0.1
+  port: 1883
+  user: mb1000
+  pw: 4j9ScYVfAYran4tm
