@@ -5,9 +5,9 @@ import (
 	"encoding/binary"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net"
+	"os"
 
 	"gopkg.in/yaml.v2"
 )
@@ -63,7 +63,7 @@ func main() {
 	flag.Parse()
 
 	// Open yaml file
-	fd, err := ioutil.ReadFile("kcf-parameters.yaml")
+	fd, err := os.ReadFile("kcf-parameters.yaml")
 	if err != nil {
 		log.Fatalln(err)
 	}
