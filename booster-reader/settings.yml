@@ -10,3 +10,4 @@ mqttOut:
   port: 1883
   user: mb1000
   pw: 4j9ScYVfAYran4tm
+  topic: booster/1/raw

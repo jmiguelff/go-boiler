@@ -1,9 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
-	"io/ioutil"
 	"log"
+	"os"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -28,6 +29,7 @@ type user_options_t struct {
 		Port     int    `yaml:"port"`
 		User     string `yaml:"user"`
 		Pw       string `yaml:"pw"`
+		Topic    string `yaml:"topic"`
 	} `yaml:"mqttOut"`
 }
 
@@ -45,7 +47,7 @@ var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err
 
 func main() {
 	// Open yaml file
-	fd, err := ioutil.ReadFile("settings.yml")
+	fd, err := os.ReadFile("settings.yml")
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -68,6 +70,7 @@ func main() {
 	fmt.Printf("MQTT client id: %s\n", options.MqttConf.ClientId)
 	fmt.Printf("\tBroker: %s:%d\n", options.MqttConf.Broker, options.MqttConf.Port)
 	fmt.Printf("\tCredentials: %s - %s\n", options.MqttConf.User, options.MqttConf.Pw)
+	fmt.Printf("\tTopic: %s\n", options.MqttConf.Topic)
 
 	// Start serial port
 	cSerial := new(serial.Config)
@@ -79,14 +82,13 @@ func main() {
 	cSerial.ReadTimeout = time.Millisecond * time.Duration(options.SerialConf.Timeout)
 
 	fmt.Println("Opening serial port")
-	/*
-		sfd, err := serial.OpenPort(cSerial)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		// Close serial port after usage
-		defer sfd.Close()
-	*/
+
+	sfd, err := serial.OpenPort(cSerial)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	// Close serial port after usage
+	defer sfd.Close()
 
 	mqttOpts := mqtt.NewClientOptions()
 	mqttOpts.AddBroker(fmt.Sprintf("tcp://%s:%d", options.MqttConf.Broker, options.MqttConf.Port))
@@ -102,46 +104,36 @@ func main() {
 		panic(token.Error())
 	}
 
-	// For debug test publish data
-	publish(mqttCli, "Ola", "topic/test")
-
-	mqttCli.Disconnect(250)
 	// Read data from booster
-	/*
-		for {
-			reader := bufio.NewReader(sfd)
-			msg, err := reader.ReadBytes('\x0a')
-			if err != nil {
-				log.Fatalln(err)
-			}
-
-			// Check min size
-			msgLen := len(msg)
-			if msgLen < 8 {
-				continue
-			}
-
-			// Check SOF
-			if msg[0] != '\x02' {
-				continue
-			}
-
-			// Check payload length
-			if int(msg[1]) != (msgLen - 1) {
-				continue
-			}
-
-			// TODO: Test checksum
-			cksum := generateChecksum(msg)
-			if cksum != msg[msgLen-2] {
-				continue
-			}
-
-			// str := hex.EncodeToString(msg)
-			str := string(msg[:])
-			log.Println(str)
+	for {
+		reader := bufio.NewReader(sfd)
+		msg, err := reader.ReadBytes('\x0a')
+		if err != nil {
+			log.Fatalln(err)
 		}
-	*/
+
+		// Check min size
+		msgLen := len(msg)
+		if msgLen < 8 {
+			log.Printf("Invalid message length [%d]\n", msgLen)
+			continue
+		}
+
+		// Check SOF
+		if msg[0] != '\x02' {
+			log.Printf("Invalid SOF [%X]\n", msg[0])
+			continue
+		}
+
+		// str := hex.EncodeToString(msg)
+		str := string(string(msg[1 : len(msg)-2]))
+		now := time.Now()
+		timestamp := now.Format("2006-01-02 15:04:05")
+
+		message := fmt.Sprintf("[%s] %s", timestamp, str)
+		fmt.Println(message)
+		publish(mqttCli, message, options.MqttConf.Topic)
+	}
 }
 
 /*
@@ -151,8 +143,7 @@ func generateChecksum(msg []byte) byte {
 		sum = sum + b
 	}
 	return ^sum
-}
-*/
+}*/
 
 func publish(client mqtt.Client, msg string, topic string) {
 	token := client.Publish(topic, 1, false, msg)
