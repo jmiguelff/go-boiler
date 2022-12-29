@@ -3,9 +3,12 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"syscall"
 	"time"
+	"unsafe"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/tarm/serial"
@@ -81,8 +84,13 @@ func main() {
 	cSerial.Parity = serial.Parity(options.SerialConf.Parity[0])
 	cSerial.ReadTimeout = time.Millisecond * time.Duration(options.SerialConf.Timeout)
 
-	fmt.Println("Opening serial port")
+	fmt.Println("Configuring serial port")
+	err = set_uart_to_485h(options.SerialConf.Device)
+	if err != nil {
+		log.Fatalln(err)
+	}
 
+	fmt.Println("Opening serial port")
 	sfd, err := serial.OpenPort(cSerial)
 	if err != nil {
 		log.Fatalln(err)
@@ -157,3 +165,95 @@ func sub(client mqtt.Client) {
 	token.Wait()
 	fmt.Printf("Subscribed to topic: %s", topic)
 }*/
+
+func set_uart_to_485h(device string) error {
+	// change gpio pin attribute
+	uartModePath, err := get_uart_mode_path(device)
+	if err != nil {
+		return err
+	}
+
+	uartDuplexPath, err := get_uart_duplex_path(device)
+	if err != nil {
+		return err
+	}
+
+	uartModeFile, err := os.Create(uartModePath)
+	if err != nil {
+		return err
+	}
+	defer uartModeFile.Close()
+
+	_, err = io.WriteString(uartModeFile, "1")
+	if err != nil {
+		return err
+	}
+
+	uartDuplexFile, err := os.Create(uartDuplexPath)
+	if err != nil {
+		return err
+	}
+	defer uartDuplexFile.Close()
+
+	_, err = io.WriteString(uartDuplexFile, "1")
+	if err != nil {
+		return err
+	}
+
+	// IOCTL Call
+	fd, err := syscall.Open(device, syscall.O_RDWR|syscall.O_NDELAY|syscall.O_NOCTTY, 0)
+	if err != nil {
+		return err
+	}
+	defer syscall.Close(fd)
+
+	var rs485Flag uint32 = 0x00000003
+	const TIOCSRS485 int = 0x542F
+
+	// IOCTL to TIOCSRS485 0x542F
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(TIOCSRS485), uintptr(unsafe.Pointer(&rs485Flag)))
+	if errno != 0 {
+		fmt.Println("ioctl failed:", errno)
+		return fmt.Errorf("ioctl failed [%v]", errno)
+	}
+
+	return nil
+}
+
+func get_uart_mode_path(device string) (string, error) {
+	var uartModePath string
+
+	switch device {
+	case "/dev/ttymxc0":
+		uartModePath = "/var/gpio/UART1_MODE/value"
+	case "/dev/ttymxc1":
+		uartModePath = "/var/gpio/UART2_MODE/value"
+	case "/dev/ttymxc2":
+		uartModePath = "/var/gpio/UART3_MODE/value"
+	case "/dev/ttymxc3":
+		uartModePath = "/var/gpio/UART4_MODE/value"
+	default:
+		return uartModePath, fmt.Errorf("invalid device [%s]", device)
+	}
+
+	return uartModePath, nil
+}
+
+func get_uart_duplex_path(device string) (string, error) {
+	var uartDuplexPath string
+
+	switch device {
+	case "/dev/ttymxc0":
+		uartDuplexPath = "/var/gpio/UART1_HDPLX/value"
+	case "/dev/ttymxc1":
+		uartDuplexPath = "/var/gpio/UART2_HDPLX/value"
+	case "/dev/ttymxc2":
+		uartDuplexPath = "/var/gpio/UART3_HDPLX/value"
+	case "/dev/ttymxc3":
+		uartDuplexPath = "/var/gpio/UART4_HDPLX/value"
+	default:
+		return uartDuplexPath, fmt.Errorf("invalid device [%s]", device)
+	}
+
+	return uartDuplexPath, nil
+}
