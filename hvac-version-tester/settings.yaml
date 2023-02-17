@@ -1,0 +1,12 @@
+- name: m1-hvac1
+  ip: 10.108.27.50
+- name: m1-hvac2
+  ip: 10.108.27.51
+- name: t-hvac1
+  ip: 10.108.27.54
+- name: t-hvac2
+  ip: 10.108.27.55
+- name: m2-hvac1
+  ip: 10.108.27.58
+- name: m2-hvac2
+  ip: 10.108.27.59
