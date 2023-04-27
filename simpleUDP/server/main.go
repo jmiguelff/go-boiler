@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"fmt"
+	"log"
 	"net"
 	"strings"
 )
@@ -21,8 +21,8 @@ func main() {
 	}
 
 	defer conn.Close()
-	fmt.Printf("server listening %s\n", conn.LocalAddr().String())
-	fmt.Printf("server listening %s:%d\n", *address, *port)
+	log.Printf("server listening %s\n", conn.LocalAddr().String())
+	log.Printf("server listening %s:%d\n", *address, *port)
 
 	for {
 		message := make([]byte, 1024)
@@ -32,10 +32,10 @@ func main() {
 		}
 
 		// Binary
-		fmt.Printf("received-bytes: [%x]\n", message[:rlen])
+		log.Printf("received-bytes: [%x]\n", message[:rlen])
 
 		// String
 		data := strings.TrimSpace(string(message[:rlen]))
-		fmt.Printf("received: %s from %s\n", data, remote)
+		log.Printf("received: %s from %s\n", data, remote)
 	}
 }
