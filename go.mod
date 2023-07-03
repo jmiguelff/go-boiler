@@ -6,6 +6,7 @@ require (
 	github.com/btcsuite/btcd v0.22.0-beta // indirect
 	github.com/eclipse/paho.mqtt.golang v1.4.2
 	github.com/ethereum/go-ethereum v1.10.14
+	github.com/grid-x/modbus v0.0.0-20230511111420-e90d491dbd4f // indirect
 	github.com/stianeikeland/go-rpio v4.2.0+incompatible
 	github.com/tarm/serial v0.0.0-20180830185346-98f6abe2eb07
 	golang.org/x/crypto v0.0.0-20211215153901-e495a2d5b3d3 // indirect
