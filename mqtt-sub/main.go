@@ -20,15 +20,25 @@ type metadata struct {
 	TimeStamp   string `json:"time"`
 }
 
-var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
-	if msg.Topic() == "cp/obd/uqe2400/2400/m1/mb1000/datalogger/signals" {
-		h := bytes.Split(msg.Payload(), []byte("\n"))
-		res := metadata{}
-		if err := json.Unmarshal(h[0], &res); err != nil {
-			fmt.Println(err)
-		}
+func PrettyString(str string) (string, error) {
+	var prettyJSON bytes.Buffer
+	if err := json.Indent(&prettyJSON, []byte(str), "", " "); err != nil {
+		return "", err
+	}
+	return prettyJSON.String(), nil
+}
 
-		fmt.Printf("Received file [%s] on topic [%s]\n", res.Name, msg.Topic())
+var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
+	h := bytes.Split(msg.Payload(), []byte("\n"))
+	res := metadata{}
+	if err := json.Unmarshal(h[0], &res); err != nil {
+		fmt.Println(err)
+	}
+
+	// Print topic
+	fmt.Printf("Received data [%s] on topic [%s]\n", res.Name, msg.Topic())
+
+	if res.DataType == "file" {
 		path := "data/" + res.Name
 		file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 		if err != nil {
@@ -43,6 +53,12 @@ var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Me
 				panic(err)
 			}
 		}
+	} else {
+		res, err := PrettyString(string(msg.Payload()))
+		if err != nil {
+			fmt.Println(err)
+		}
+		fmt.Println(res)
 	}
 }
 
@@ -58,14 +74,14 @@ func main() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
-	var broker = "192.168.3.53"
+	var broker = "10.35.0.1"
 	var port = 1883
 
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", broker, port))
 	opts.SetClientID("mqtt-sub-cli")
-	opts.SetUsername("test")
-	opts.SetPassword("n0madr00t")
+	opts.SetUsername("cp_uqe_undef01")
+	opts.SetPassword("FwWMuuVhx6Vgs8KV")
 	opts.SetDefaultPublishHandler(messagePubHandler)
 
 	opts.OnConnect = connectHandler
@@ -82,7 +98,7 @@ func main() {
 }
 
 func sub(client mqtt.Client) {
-	topic := "cp/obd/uqe2400/2400/m1/mb1000/datalogger/signals"
+	topic := "cp/obd/cpa4000/#"
 	if token := client.Subscribe(topic, 1, nil); token.Wait() && token.Error() != nil {
 		panic(token.Error())
 	}
