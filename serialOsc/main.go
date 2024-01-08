@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"log"
+	"strconv"
 	"strings"
 
 	"github.com/hypebeast/go-osc/osc"
@@ -32,20 +33,17 @@ func main() {
 			log.Fatal(err)
 		}
 		data = strings.TrimSuffix(data, "\n")
-		log.Printf("[%s]", data)
+		log.Printf("[%x]", data)
 
 		msgOsc := osc.NewMessage("/oscVal")
-		msgOsc.Append(data)
-		clientOsc.Send(msgOsc)
+		// msgOsc.Append(data)
+		// clientOsc.Send(msgOsc)
 
-		/*
-			dataSlice := strings.Split(data, " ")
-			for i, v := range dataSlice {
-				topic := "/oscVal" + strconv.Itoa(i)
-				log.Printf("OSC: [%s] [%s]\n", topic, v)
-				msgOsc := osc.NewMessage(topic)
-				msgOsc.Append(v)
-				clientOsc.Send(msgOsc)
-			}*/
+		dataSlice := strings.Split(data, " ")
+		for _, v := range dataSlice {
+			s, _ := strconv.ParseFloat(v, 32)
+			msgOsc.Append(float32(s))
+		}
+		clientOsc.Send(msgOsc)
 	}
 }
