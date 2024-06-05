@@ -298,14 +298,16 @@ func parseBlock(block []byte) {
 	fmt.Printf("Block Idx: %d has %d occurrences \n", block[9], occurrences)
 
 	// Pretty print the contents of the block
-	fmt.Println("Block Contents:")
-	for i := 0; i < len(block); i++ {
-		fmt.Printf("%02X ", block[i])
-		if (i+1)%16 == 0 {
-			fmt.Println()
+	/*
+		fmt.Println("Block Contents:")
+		for i := 0; i < len(block); i++ {
+			fmt.Printf("%02X ", block[i])
+			if (i+1)%16 == 0 {
+				fmt.Println()
+			}
 		}
-	}
-	fmt.Println()
+		fmt.Println()
+	*/
 
 	// If there is any occurence create a new event
 	if occurrences == 0 {
@@ -359,9 +361,6 @@ func parseBlock(block []byte) {
 				} else if varValue == 1 && eqpIdx == 3 {
 					lvpsDigitalVars[j*8+varIndex].value = true
 					occurrence.activeVars = append(occurrence.activeVars, lvpsDigitalVars[j*8+varIndex])
-				} else {
-					fmt.Println("Invalid equipment index")
-					return
 				}
 			}
 		}
