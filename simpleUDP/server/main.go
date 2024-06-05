@@ -4,7 +4,6 @@ import (
 	"flag"
 	"log"
 	"net"
-	"strings"
 )
 
 func main() {
@@ -32,10 +31,10 @@ func main() {
 		}
 
 		// Binary
-		log.Printf("received-bytes: [%x]\n", message[:rlen])
+		log.Printf("received-bytes: [%x] from [%s]\n", message[:rlen], remote)
 
 		// String
-		data := strings.TrimSpace(string(message[:rlen]))
-		log.Printf("received: %s from %s\n", data, remote)
+		//data := strings.TrimSpace(string(message[:rlen]))
+		//log.Printf("received: %s from %s\n", data, remote)
 	}
 }
