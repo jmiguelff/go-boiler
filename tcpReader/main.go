@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	dstPtr := flag.String("dst", "localhost:8000", "data destinantion")
+	dstPtr := flag.String("dst", "localhost:8000", "data destination")
 	flag.Parse()
 
 	// Get the IP struct from hostname
