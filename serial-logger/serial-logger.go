@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/tarm/serial"
@@ -62,42 +60,31 @@ func main() {
 	}
 	defer sfd.Close()
 
-	// 4) Graceful shutdown on CTRL+C
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		logger.Println("interrupt received, shutting down")
-		sfd.Close()
-		f.Close()
-		os.Exit(0)
-	}()
-
-	// 5) Frame‑based read & ASCII‑hex log
+	// 5) Read with idle timeout instead of 0x55 delimiter:
 	reader := bufio.NewReader(sfd)
 	var buf []byte
 
 	for {
 		b, err := reader.ReadByte()
 		if err != nil {
-			logger.Printf("read error: %v", err)
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-
-		if b == 0x55 {
-			// New frame: flush previous buffer
+			// assume this is the 50 ms timeout firing
 			if len(buf) > 0 {
-				// build ASCII‑hex line
+				// flush frame to log
 				parts := make([]string, len(buf))
 				for i, vb := range buf {
 					parts[i] = fmt.Sprintf("0x%02X", vb)
 				}
 				logger.Println(strings.Join(parts, " "))
+				buf = buf[:0]
 			}
-			buf = []byte{b}
-		} else {
-			buf = append(buf, b)
+			// continue reading
+			continue
 		}
+
+		// 1) echo to stdout
+		fmt.Printf("0x%02X ", b)
+
+		// 2) collect into buffer
+		buf = append(buf, b)
 	}
 }

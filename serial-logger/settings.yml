@@ -1,6 +1,7 @@
 serialConf:
-  name: Lusogate
   device: /dev/cu.usbmodem1423401s
+  dataBits: 8
   baud: 115200
   stopbits: 1
   parity: N
+  timeout: 50
