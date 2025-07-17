@@ -5,41 +5,43 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"time"
 )
 
 func main() {
-	dstPtr := flag.String("dst", "localhost:8000", "data destinantion")
+	dstPtr := flag.String("dst", "localhost:8000", "server address (host:port)")
 	flag.Parse()
 
-	// Get the IP struct from hostname
 	tcpAddr, err := net.ResolveTCPAddr("tcp", *dstPtr)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	// Connect to the server
 	conn, err := net.DialTCP("tcp", nil, tcpAddr)
 	if err != nil {
-		fmt.Println("Fail to connect to ", *dstPtr)
-		log.Fatalln(err)
+		log.Fatalf("Fail to connect to %s: %v", *dstPtr, err)
 	}
-	// Close socket after return from main
 	defer conn.Close()
+	fmt.Printf("Connected to %s\n", *dstPtr)
 
-	// Send data
-	strEcho := "Test message"
-	_, err = conn.Write([]byte(strEcho))
-	if err != nil {
-		log.Fatalln(err)
+	for {
+		// Send ping
+		_, err := conn.Write([]byte("ping"))
+		if err != nil {
+			log.Printf("Disconnected (write error): %v", err)
+			return
+		}
+		fmt.Println("Sent: ping")
+
+		// Read pong
+		replyBuf := make([]byte, 1400)
+		n, err := conn.Read(replyBuf)
+		if err != nil {
+			log.Printf("Disconnected (read error): %v", err)
+			return
+		}
+		fmt.Printf("Received: %q\n", string(replyBuf[:n]))
+
+		time.Sleep(1 * time.Second)
 	}
-	fmt.Println("Message sent: ", strEcho)
-
-	// Handle the reply from server
-	reply := make([]byte, 1400)
-	_, err = conn.Read(reply)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	fmt.Println("Reply from server: ", string(reply))
-
 }
