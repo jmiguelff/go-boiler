@@ -103,5 +103,4 @@ func main() {
 
 	// Exit
 	fmt.Println("Exit")
-	return
 }
