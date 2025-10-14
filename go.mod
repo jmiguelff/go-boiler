@@ -6,6 +6,8 @@ require (
 	github.com/btcsuite/btcd v0.22.0-beta // indirect
 	github.com/eclipse/paho.mqtt.golang v1.4.2
 	github.com/ethereum/go-ethereum v1.10.14
+	github.com/goburrow/modbus v0.1.0
+	github.com/goburrow/serial v0.1.0 // indirect
 	github.com/grid-x/modbus v0.0.0-20230511111420-e90d491dbd4f
 	github.com/hypebeast/go-osc v0.0.0-20220308234300-cec5a8a1e5f5
 	github.com/stianeikeland/go-rpio v4.2.0+incompatible
