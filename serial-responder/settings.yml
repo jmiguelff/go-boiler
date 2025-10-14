@@ -1,0 +1,7 @@
+serialConf:
+  device: /dev/cu.usbserial-FT1RDFI9
+  dataBits: 8
+  baud: 115200
+  stopbits: 1
+  parity: N
+  timeout: 50
